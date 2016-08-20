@@ -4,7 +4,7 @@ package textclipping
 
 import (
 	"encoding/binary"
-	"fmt"
+	"errors"
 	"io"
 )
 
@@ -14,12 +14,14 @@ type ContentType [4]byte
 
 var (
 	UTF8Text = ContentType{'u', 't', 'f', '8'}
-	RichText = ContentType{'R', 'T', 'F', ' '}
+	RTF      = ContentType{'R', 'T', 'F', ' '}
 )
 
 // TextClipping stores the contents of a text clipping's
 // resource fork.
 type TextClipping struct {
+	header header
+	footer []byte
 	blocks [][]byte
 }
 
@@ -27,54 +29,57 @@ type TextClipping struct {
 // contents.
 func ReadTextClipping(r io.Reader) (*TextClipping, error) {
 	var t TextClipping
-	for {
+
+	head, err := readHeader(r)
+	if err != nil {
+		return nil, err
+	}
+	t.header = head
+
+	var totalRead int
+	for totalRead < head.bodySize() {
 		var blockSize uint32
 		err := binary.Read(r, binary.BigEndian, &blockSize)
-		if err == io.EOF {
-			break
-		}
-		if len(t.blocks) == 0 {
-			if blockSize < 4 {
-				return nil, fmt.Errorf("unexpected first size: %v", blockSize)
+		if err != nil {
+			if err == io.EOF {
+				err = io.ErrUnexpectedEOF
 			}
-			blockSize -= 4
+			return nil, err
 		}
 		block := make([]byte, int(blockSize))
 		n, err := io.ReadFull(r, block)
 		t.blocks = append(t.blocks, block[:n])
-
-		if err == io.ErrUnexpectedEOF && blockSize == 0x100 {
-			// TODO: figure out why the last block's size
-			// doesn't match its content length.
-			break
-		}
 		if err != nil {
 			return nil, err
 		}
+		totalRead += n + 4
 	}
-	return &t, nil
-}
+	if totalRead > head.bodySize() {
+		return nil, errors.New("body was longer than expected")
+	}
 
-// Blocks returns the underlying list of data blocks
-// in the text clipping document.
-func (t *TextClipping) Blocks() [][]byte {
-	return t.blocks
+	t.footer = make([]byte, head.footerSize())
+	if _, err := io.ReadFull(r, t.footer); err != nil {
+		return nil, err
+	}
+
+	return &t, nil
 }
 
 // Types returns the available content types in this
 // clipping.
 func (t *TextClipping) Types() []ContentType {
-	if len(t.blocks) < 2 {
+	if len(t.blocks) == 0 {
 		return nil
 	}
-	typeList := t.blocks[len(t.blocks)-2]
+	typeList := t.blocks[len(t.blocks)-1]
 	var res []ContentType
 	for i := 1; i < len(typeList)/16; i++ {
 		var t ContentType
 		copy(t[:], typeList[i*16:])
 		res = append(res, t)
 	}
-	if len(res) > len(t.blocks)-2 {
+	if len(res) > len(t.blocks)-1 {
 		return nil
 	}
 	return res
@@ -86,7 +91,7 @@ func (t *TextClipping) Data(ct ContentType) []byte {
 	types := t.Types()
 	for i, x := range types {
 		if x == ct {
-			return t.blocks[i+1]
+			return t.blocks[i]
 		}
 	}
 	return nil
