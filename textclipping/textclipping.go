@@ -1,5 +1,5 @@
-// Package textclipping can parse the resource forks of
-// Mac OS X textClipping files.
+// Package textclipping can extract data from the
+// resource forks of Mac OS X textClipping files.
 package textclipping
 
 import (
@@ -12,9 +12,17 @@ import (
 // data stored in a section of a text clipping.
 type ContentType [4]byte
 
+// These are common content types found in a typical
+// textClipping resource fork.
+// For the most part, these are placed in ascending
+// order of obscurity.
 var (
-	UTF8Text = ContentType{'u', 't', 'f', '8'}
-	RTF      = ContentType{'R', 'T', 'F', ' '}
+	UTF8Text   = ContentType{'u', 't', 'f', '8'}
+	RTF        = ContentType{'R', 'T', 'F', ' '}
+	UTF16Text  = ContentType{'u', 't', '1', '6'}
+	WebArchive = ContentType{'w', 'e', 'b', 'a'}
+	UStyle     = ContentType{'u', 's', 't', 'l'}
+	Style      = ContentType{'s', 't', 'y', 'l'}
 )
 
 // TextClipping stores the contents of a text clipping's
